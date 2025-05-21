@@ -15,11 +15,21 @@ class Asistencia {
 
   factory Asistencia.fromJson(Map<String, dynamic> json) {
     return Asistencia(
-      idAsistencia: json['id_asistencia'] as int? ?? 0, // Handle null case
-      idHorario: json['id_horario'] as int? ?? 0,       // Handle null case
-      idEstado: json['id_estado'] as int? ?? 0,         // Handle null case
+      idAsistencia: json['id_asistencia'] as int? ?? 0,
+      idHorario: json['id_horario'] as int? ?? 0,
+      idEstado: json['id_estado'] as int? ?? 0,
       fechaAsistencia: DateTime.parse(json['fecha_asistencia'] as String? ?? DateTime.now().toString()),
       horaAsistencia: json['hora_asistencia'] as String? ?? '',
     );
+  }
+
+  Map<String, dynamic> toJson() {
+    return {
+      'id_asistencia': idAsistencia,
+      'id_horario': idHorario,
+      'id_estado': idEstado,
+      'fecha_asistencia': fechaAsistencia.toIso8601String(),
+      'hora_asistencia': horaAsistencia,
+    };
   }
 }

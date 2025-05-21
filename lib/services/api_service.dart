@@ -56,7 +56,7 @@ class ApiService {
       if (response.statusCode == 200) {
         final data = json.decode(response.body);
         return data['token'];
-      } else {
+      } else { 
         return null;
       }
     } catch (e) {
@@ -217,38 +217,74 @@ class ApiService {
     }
   }
 
-  // ==================== ASISTENCIAS ====================
+// ==================== ASISTENCIAS ====================
 
-    Future<Map<String, dynamic>> getAsistencias({
-    required String token,
-    String? fecha,
-    int? idHorario,
-    int? idMaestro,
-  }) async {
-    try {
-      final queryParams = <String, String>{
-        if (fecha != null) 'fecha': fecha,
-        if (idHorario != null) 'id_horario': idHorario.toString(),
-        if (idMaestro != null) 'id_maestro': idMaestro.toString(),
-      };
-
-      final uri = Uri.parse('$_baseUrl/asistencias').replace(
-        queryParameters: queryParams,
-      );
-
-      final response = await _handleRequest(
-        _client.get(uri, headers: _buildHeaders(token)),
-      );
-
-      if (response is! Map<String, dynamic>) {
-        throw ApiException('La respuesta no es un mapa válido');
-      }
-
-      return response;
-    } on ApiException catch (e) {
-      throw ApiException('Error obteniendo asistencias: ${e.message}');
+Future<Map<String, dynamic>> getAsistencias({
+  required String token,
+  required String fecha,
+  int? idHorario,
+  int? idMaestro,
+}) async {
+  try {
+    // Validar parámetro fecha
+    if (fecha.isEmpty) {
+      throw ApiException('La fecha es requerida');
     }
+
+    // Construir parámetros de consulta
+    final queryParams = <String, String>{
+      'fecha': fecha,
+      if (idHorario != null) 'id_horario': idHorario.toString(),
+      if (idMaestro != null) 'id_maestro': idMaestro.toString(),
+    };
+
+    final uri = Uri.parse('$_baseUrl/asistencias').replace(
+      queryParameters: queryParams,
+    );
+
+    // Log para depuración
+    debugPrint('Solicitando asistencias: ${uri.toString()}');
+
+    final response = await _client.get(
+      uri,
+      headers: _buildHeaders(token),
+    );
+
+    // Verificar el código de estado
+    if (response.statusCode != 200) {
+      final errorBody = _tryParseResponse(response.body);
+      throw ApiException(
+        'Error en la solicitud (${response.statusCode}): ${errorBody['message'] ?? 'Error desconocido'}',
+      );
+    }
+
+    // Parsear y validar la respuesta
+    
+    final responseBody = _tryParseResponse(response.body);
+    
+    if (responseBody is! Map<String, dynamic>) {
+      throw ApiException('Formato de respuesta inválido. Se esperaba un mapa JSON');
+    }
+
+    if (!responseBody.containsKey('success')) {
+      throw ApiException('La respuesta no indica éxito/fallo');
+    }
+
+    if (responseBody['success'] == false) {
+      throw ApiException(responseBody['message'] ?? 'Error al obtener asistencias');
+    }
+
+    if (!responseBody.containsKey('data')) {
+      throw ApiException('La respuesta no contiene datos de asistencia');
+    }
+
+    return responseBody;
+  } on ApiException {
+    rethrow;
+  } catch (e) {
+    throw ApiException('Error inesperado obteniendo asistencias: ${e.toString()}');
   }
+}
 
 Future<Asistencia> createAsistencia({
   required String token,
@@ -258,8 +294,21 @@ Future<Asistencia> createAsistencia({
   required String horaAsistencia,
 }) async {
   try {
-    if (idEstado != 1 && idEstado != 2) {
-      throw ApiException('Estado de asistencia inválido');
+    // Validación exhaustiva de parámetros
+    if (idHorario <= 0) {
+      throw ApiException('ID de horario inválido');
+    }
+
+    if (idEstado < 1 || idEstado > 3) {
+      throw ApiException('Estado de asistencia inválido. Valores permitidos: 1 (Presente), 2 (Ausente), 3 (Retardo)');
+    }
+
+    if (!RegExp(r'^\d{4}-\d{2}-\d{2}$').hasMatch(fechaAsistencia)) {
+      throw ApiException('Formato de fecha inválido. Use YYYY-MM-DD');
+    }
+
+    if (!RegExp(r'^\d{2}:\d{2}:\d{2}$').hasMatch(horaAsistencia)) {
+      throw ApiException('Formato de hora inválido. Use HH:MM:SS');
     }
 
     final url = Uri.parse('$_baseUrl/asistencias');
@@ -270,33 +319,111 @@ Future<Asistencia> createAsistencia({
       'hora_asistencia': horaAsistencia,
     };
 
-    final response = await _handleRequest(
-      _client.post(
-        url,
-        headers: _buildHeaders(token),
-        body: json.encode(body),
-      ),
+    // Log para depuración
+    debugPrint('Creando asistencia: ${url.toString()}');
+    debugPrint('Datos: ${json.encode(body)}');
+
+    final response = await _client.post(
+      url,
+      headers: _buildHeaders(token),
+      body: json.encode(body),
     );
 
-    if (response is! Map<String, dynamic>) {
-      throw ApiException('Respuesta inválida al crear asistencia');
+    // Verificar el código de estado
+    if (response.statusCode != 201) {
+      final errorBody = _tryParseResponse(response.body);
+      throw ApiException(
+        'Error al crear asistencia (${response.statusCode}): ${errorBody['message'] ?? 'Error desconocido'}',
+      );
     }
 
-    // Ensure required fields exist in response
-    if (response['id_asistencia'] == null || 
-        response['id_horario'] == null || 
-        response['id_estado'] == null) {
-      throw ApiException('Datos incompletos en la respuesta del servidor');
-    }
+    final responseBody = _tryParseResponse(response.body);
 
-    return Asistencia.fromJson(response);
-  } on FormatException catch (e) {
-    throw ApiException('Error de formato: ${e.message}');
+if (responseBody == null || responseBody['success'] != true) {
+  throw ApiException(responseBody?['message'] ?? 'Error al actualizar asistencia');
+}
+
+    return Asistencia.fromJson(responseBody['data']);
+  } on ApiException {
+    rethrow;
   } catch (e) {
-    throw ApiException('Error creando asistencia: ${e.toString()}');
+    throw ApiException('Error inesperado creando asistencia: ${e.toString()}');
   }
 }
 
+Future<Asistencia> updateAsistencia({
+  required String token,
+  required int idAsistencia,
+  required int idEstado,
+  required String horaAsistencia,
+}) async {
+  try {
+    // Validación de parámetros
+    if (idAsistencia <= 0) {
+      throw ApiException('ID de asistencia inválido');
+    }
+
+    if (idEstado < 1 || idEstado > 3) {
+      throw ApiException('Estado de asistencia inválido. Valores permitidos: 1 (Presente), 2 (Ausente), 3 (Retardo)');
+    }
+
+    if (!RegExp(r'^\d{2}:\d{2}:\d{2}$').hasMatch(horaAsistencia)) {
+      throw ApiException('Formato de hora inválido. Use HH:MM:SS');
+    }
+
+    final url = Uri.parse('$_baseUrl/asistencias/$idAsistencia');
+    final body = {
+      'id_estado': idEstado,
+      'hora_asistencia': horaAsistencia,
+    };
+
+    // Log para depuración
+    debugPrint('Actualizando asistencia: ${url.toString()}');
+    debugPrint('Datos: ${json.encode(body)}');
+
+    final response = await _client.put(
+      url,
+      headers: _buildHeaders(token),
+      body: json.encode(body),
+    );
+
+    // Verificar el código de estado
+    if (response.statusCode != 200) {
+      final errorBody = _tryParseResponse(response.body);
+      throw ApiException(
+        'Error al actualizar asistencia (${response.statusCode}): ${errorBody['message'] ?? 'Error desconocido'}',
+      );
+    }
+
+    final responseBody = _tryParseResponse(response.body);
+
+if (responseBody == null || responseBody['success'] != true) {
+  throw ApiException(responseBody?['message'] ?? 'Error al actualizar asistencia');
+}
+
+final data = responseBody['data'];
+if (data == null) {
+  throw ApiException('Datos de asistencia no encontrados');
+}
+   return Asistencia.fromJson(responseBody['data']);
+  } on ApiException {
+    rethrow;
+  } catch (e) {
+    throw ApiException('Error inesperado actualizando asistencia: ${e.toString()}');
+  }
+}
+
+// =============== FUNCIONES AUXILIARES ===============
+dynamic _tryParseResponse(String body) {
+  try {
+    return json.decode(body);
+  } catch (e) {
+    if (body.toLowerCase().contains('<html>')) {
+      throw ApiException('El servidor devolvió una página HTML. Posible error en el endpoint');
+    }
+    throw ApiException('Formato de respuesta inválido: ${body.length > 100 ? body.substring(0, 100) + '...' : body}');
+  }
+}
   // ==================== ESTADOS ====================
   Future<List<dynamic>> getEstados(String token) async {
     final url = Uri.parse('$_baseUrl/estados');
@@ -312,7 +439,6 @@ Future<Asistencia> createAsistencia({
     }
   }
 
-  
 
   // ==================== USUARIOS ====================
   Future<List<dynamic>> getUsuarios(String token) async {
@@ -339,5 +465,11 @@ Future<Asistencia> createAsistencia({
       throw Exception('Error ${response.statusCode}: ${response.body}');
     }
   }
+
+  void debugPrint(String message) {
+    // Puedes implementar tu propio sistema de logging aquí
+    print('[DEBUG] $message');
+  }
+
 }
 

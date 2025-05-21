@@ -36,7 +36,7 @@ class _RegistrarHorarioScreenState extends State<RegistrarHorariosScreen> {
   final TextEditingController _horaFinController = TextEditingController();
   final TextEditingController _searchController = TextEditingController();
 
-  final List<String> dias = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado'];
+  final List<String> dias = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes',];
 
   @override
   void initState() {
@@ -345,15 +345,15 @@ class _RegistrarHorarioScreenState extends State<RegistrarHorariosScreen> {
       return time;
     }
     
-    // Si es un número (como 24900.0)
-    if (time is num || (time is String && time.contains('.'))) {
+    // Si es un número (segundos o formato decimal)
+    if (time is num || (time is String && num.tryParse(time.toString()) != null)) {
       final totalSeconds = double.tryParse(time.toString()) ?? 0;
       final hours = (totalSeconds / 3600).floor();
       final minutes = ((totalSeconds % 3600) / 60).floor();
       return '${hours.toString().padLeft(2, '0')}:${minutes.toString().padLeft(2, '0')}';
     }
     
-    return null;
+    return '00:00'; // Valor por defecto
   }
 
   Future<void> _borrarHorario(int id) async {
@@ -594,7 +594,7 @@ class _RegistrarHorarioScreenState extends State<RegistrarHorariosScreen> {
                 ),
                 const SizedBox(height: 4),
                 Text(
-                  'Horario: ${horario['dia'] ?? ''} ${horario['hora_inicio'] ?? ''} - ${horario['hora_fin'] ?? ''}',
+                  'Horario: ${horario['dia'] ?? ''} ${_parseTimeFromBackend(horario['hora_inicio']) ?? ''} - ${_parseTimeFromBackend(horario['hora_fin']) ?? ''}',
                   style: const TextStyle(fontSize: 14),
                 ),
               ],
@@ -911,26 +911,21 @@ class _EditarHorarioFormState extends State<EditarHorarioForm> {
 
   String _formatTime(dynamic timeValue) {
     if (timeValue == null) return '00:00';
-    
-    if (timeValue is String) {
-      if (timeValue.contains('.') && double.tryParse(timeValue) != null) {
-        return _convertDecimalTime(timeValue);
-      }
-      if (timeValue.length >= 5 && timeValue.contains(':')) {
-        return timeValue.substring(0, 5);
-      }
-      return timeValue;
+
+    // Si ya está en formato HH:mm
+    if (timeValue is String && timeValue.contains(':')) {
+      return timeValue.length >= 5 ? timeValue.substring(0, 5) : timeValue;
     }
-    
-    if (timeValue is DateTime) {
-      return DateFormat('HH:mm').format(timeValue);
+
+    // Si es un número (segundos o formato decimal)
+    if (timeValue is num || (timeValue is String && num.tryParse(timeValue.toString()) != null)) {
+      final totalSeconds = double.tryParse(timeValue.toString()) ?? 0;
+      final hours = (totalSeconds / 3600).floor();
+      final minutes = ((totalSeconds % 3600) / 60).floor();
+      return '${hours.toString().padLeft(2, '0')}:${minutes.toString().padLeft(2, '0')}';
     }
-    
-    if (timeValue is num) {
-      return _convertDecimalTime(timeValue.toString());
-    }
-    
-    return '00:00';
+
+    return '00:00'; // Valor por defecto
   }
 
   String _convertDecimalTime(String decimalTime) {
@@ -944,6 +939,7 @@ class _EditarHorarioFormState extends State<EditarHorarioForm> {
       return '00:00';
     }
   }
+
 
   @override
   void dispose() {

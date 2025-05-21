@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:intl/intl.dart';
 import 'package:prefectura_1/models/horario_model.dart';
 import 'package:prefectura_1/services/api_service.dart';
 import 'package:prefectura_1/exceptions/api_exception.dart';
@@ -19,30 +20,23 @@ class _PrefectoHomeScreenState extends State<PrefectoHomeScreen> {
   bool _hasError = false;
   DateTime _fechaSeleccionada = DateTime.now();
 
-  // Métodos auxiliares para parseo seguro
-  int _parseToInt(dynamic value) {
-    if (value == null) return 0;
-    if (value is int) return value;
-    if (value is double) return value.toInt();
-    if (value is String) return int.tryParse(value) ?? 0;
-    return 0;
-  }
+  final Map<int, String> _estadosAsistencia = {
+    1: 'PRESENTE',
+    2: 'AUSENTE',
+  
+  };
 
-  String? _parseToString(dynamic value) {
-    if (value == null) return null;
-    if (value is String) return value.trim();
-    return value.toString().trim();
-  }
+  final Map<int, Color> _coloresEstado = {
+    1: Colors.green,
+    2: Colors.red,
+    
+  };
 
-  bool _parseToBool(dynamic value) {
-    if (value == null) return false;
-    if (value is bool) return value;
-    if (value is int) return value != 0;
-    if (value is String) {
-      return value.toLowerCase() == 'true' || value == '1';
-    }
-    return false;
-  }
+  final Map<int, IconData> _iconosEstado = {
+    1: Icons.check_circle,
+    2: Icons.cancel,
+    3: Icons.access_time
+  };
 
   @override
   void initState() {
@@ -50,14 +44,28 @@ class _PrefectoHomeScreenState extends State<PrefectoHomeScreen> {
     _cargarHorariosDelDia();
   }
 
+  int _parseToInt(dynamic value) => value?.toInt() ?? 0;
+
+  String? _parseToString(dynamic value) => value?.toString().trim();
+
+  bool _parseToBool(dynamic value) {
+    if (value == null) return false;
+    if (value is bool) return value;
+    if (value is num) return value != 0;
+    if (value is String) return value.toLowerCase() == 'true' || value == '1';
+    return false;
+  }
+
   String _formatearFecha(DateTime fecha) {
-    final dias = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo'];
+    final dias = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes',];
     final meses = ['Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio', 
                   'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'];
-    
     return '${dias[fecha.weekday - 1]} ${fecha.day} de ${meses[fecha.month - 1]}';
   }
 
+  String _formatearFechaAPI(DateTime fecha) {
+    return '${fecha.year}-${fecha.month.toString().padLeft(2, '0')}-${fecha.day.toString().padLeft(2, '0')}';
+  }
   Future<void> _cargarHorariosDelDia() async {
     setState(() {
       _isLoading = true;
@@ -66,28 +74,21 @@ class _PrefectoHomeScreenState extends State<PrefectoHomeScreen> {
     
     try {
       final response = await _apiService.getHorarios(widget.token);
-      debugPrint('Respuesta de horarios: $response');
       
-      final hoy = '${_fechaSeleccionada.year}-${_fechaSeleccionada.month.toString().padLeft(2, '0')}-${_fechaSeleccionada.day.toString().padLeft(2, '0')}';
+      if (response == null || response is! List) {
+        throw ApiException('Formato de respuesta inválido para horarios');
+      }
       
       final horariosHoy = response.where((h) => _esHorarioParaHoy(h)).toList();
-      debugPrint('Horarios filtrados para hoy: ${horariosHoy.length}');
-      
-      final horarios = await _procesarHorarios(horariosHoy, hoy);
+      final horarios = await _procesarHorarios(horariosHoy, _formatearFechaAPI(_fechaSeleccionada));
       
       setState(() => _horariosHoy = horarios);
     } on ApiException catch (e) {
-      debugPrint('ApiException: ${e.message}');
-      if (e.stackTrace != null) {
-        debugPrint('Stack trace: ${e.stackTrace}');
-      }
       setState(() => _hasError = true);
       _mostrarErrorSnackbar(e.message);
-    } catch (e, stackTrace) {
-      debugPrint('Error inesperado: $e');
-      debugPrint('Stack trace: $stackTrace');
+    } catch (e) {
       setState(() => _hasError = true);
-      _mostrarErrorSnackbar('Error inesperado: ${e.toString()}');
+      _mostrarErrorSnackbar('Error al cargar los horarios');
     } finally {
       setState(() => _isLoading = false);
     }
@@ -95,22 +96,23 @@ class _PrefectoHomeScreenState extends State<PrefectoHomeScreen> {
 
   bool _esHorarioParaHoy(dynamic horario) {
     try {
-      final diaHorario = _parseToString(horario['dia'])?.toUpperCase() ?? '';
+      final Map<String, dynamic> horarioMap = _convertToMap(horario);
+      final diaHorario = _parseToString(horarioMap['dia'])?.toUpperCase() ?? '';
       final diaActual = _obtenerDiaSemana(_fechaSeleccionada).toUpperCase();
-      
-      debugPrint('Comparando días - Horario: $diaHorario, Hoy: $diaActual');
-      
       return diaHorario == diaActual;
-    } catch (e, stackTrace) {
-      debugPrint("Error comparando días: $e");
-      debugPrint("Stack trace: $stackTrace");
-      debugPrint("Datos del horario: $horario");
+    } catch (e) {
       return false;
     }
   }
 
+  Map<String, dynamic> _convertToMap(dynamic data) {
+    if (data is Map<String, dynamic>) return data;
+    if (data is Map) return Map<String, dynamic>.from(data);
+    return {};
+  }
+
   String _obtenerDiaSemana(DateTime fecha) {
-    const dias = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes', 'Sábado', 'Domingo'];
+    const dias = ['Lunes', 'Martes', 'Miércoles', 'Jueves', 'Viernes',];
     return dias[fecha.weekday - 1];
   }
 
@@ -118,40 +120,58 @@ Future<List<Horario>> _procesarHorarios(List<dynamic> horariosHoy, String hoy) a
   final List<Horario> result = [];
   
   try {
+    debugPrint('Solicitando asistencias para fecha: $hoy');
+    
     final response = await _apiService.getAsistencias(
       token: widget.token,
       fecha: hoy,
     );
 
-    final asistencias = (response['data'] as List?)?.cast<Map<String, dynamic>>() ?? [];
+    debugPrint('Respuesta de asistencias: $response');
+
+    final responseMap = _convertToMap(response);
+    final asistencias = responseMap.containsKey('data')
+        ? (responseMap['data'] as List?)?.map((e) => _convertToMap(e)).toList() ?? []
+        : [];
+
+    debugPrint('Asistencias encontradas: ${asistencias.length}');
 
     for (var h in horariosHoy) {
       try {
-        final asistencia = asistencias.firstWhere(
-          (a) => _parseToInt(a['id_horario']) == _parseToInt(h['id_horario']),
-          orElse: () => <String, dynamic>{},
-        );
+        final horarioMap = _convertToMap(h);
+        final idHorario = _parseToInt(horarioMap['id_horario']);
+        Map<String, dynamic>? asistencia;
+        
+        if (asistencias.isNotEmpty) {
+          asistencia = asistencias.firstWhere(
+            (a) => _parseToInt(a['id_horario']) == idHorario,
+            orElse: () => <String, dynamic>{},
+          );
+        }
 
-        final horarioData = Map<String, dynamic>.from({
-          ...h,
-          'asistencia_registrada': asistencia.isNotEmpty,
-          'estado_asistencia': asistencia.isNotEmpty 
-              ? (_parseToInt(asistencia['id_estado']) == 1 ? 'PRESENTE' : 'AUSENTE')
+        final bool asistenciaRegistrada = asistencia != null && asistencia.isNotEmpty;
+
+        debugPrint('Horario $idHorario - Asistencia registrada: $asistenciaRegistrada');
+
+        final horarioData = {
+          ...horarioMap,
+          'asistencia_registrada': asistenciaRegistrada,
+          'id_estado': asistenciaRegistrada ? _parseToInt(asistencia!['id_estado']) : null,
+          'id_asistencia': asistenciaRegistrada ? _parseToInt(asistencia!['id_asistencia']) : null,
+          'hora_registro': asistenciaRegistrada
+              ? _formatearHoraAsistencia(asistencia!['hora_asistencia'])
               : null,
-          'hora_registro': asistencia.isNotEmpty 
-              ? _formatearHoraAsistencia(asistencia['hora_asistencia'])
-              : null,
-        });
+        };
 
         result.add(Horario.fromJson(horarioData));
-      } catch (e, stackTrace) {
+      } catch (e) {
         debugPrint('Error procesando horario: $e');
-        debugPrint('Stack trace: $stackTrace');
-        
+        final horarioMap = _convertToMap(h);
         result.add(Horario.fromJson({
-          ...h,
+          ...horarioMap,
           'asistencia_registrada': false,
-          'estado_asistencia': null,
+          'id_estado': null,
+          'id_asistencia': null,
           'hora_registro': null,
         }));
       }
@@ -159,7 +179,16 @@ Future<List<Horario>> _procesarHorarios(List<dynamic> horariosHoy, String hoy) a
   } catch (e, stackTrace) {
     debugPrint('Error al procesar horarios: $e');
     debugPrint('Stack trace: $stackTrace');
-    rethrow;
+    for (var h in horariosHoy) {
+      final horarioMap = _convertToMap(h);
+      result.add(Horario.fromJson({
+        ...horarioMap,
+        'asistencia_registrada': false,
+        'id_estado': null,
+        'id_asistencia': null,
+        'hora_registro': null,
+      }));
+    }
   }
 
   return result;
@@ -167,27 +196,92 @@ Future<List<Horario>> _procesarHorarios(List<dynamic> horariosHoy, String hoy) a
 
   String? _formatearHoraAsistencia(dynamic hora) {
     if (hora == null) return null;
-    
-    try {
-      if (hora is String) {
-        return hora;
-      } else if (hora is DateTime) {
-        return '${hora.hour.toString().padLeft(2, '0')}:${hora.minute.toString().padLeft(2, '0')}';
-      } else {
-        return hora.toString();
-      }
-    } catch (e) {
-      debugPrint('Error formateando hora: $e');
-      return null;
+    if (hora is String) return hora.length > 5 ? hora.substring(0, 5) : hora;
+    if (hora is DateTime) {
+      return '${hora.hour.toString().padLeft(2, '0')}:${hora.minute.toString().padLeft(2, '0')}';
     }
+    return hora.toString();
   }
 
+  bool _esClaseDeHoy(Horario horario) {
+    final hoy = DateTime.now();
+    final fechaHorario = DateTime(
+      _fechaSeleccionada.year,
+      _fechaSeleccionada.month,
+      _fechaSeleccionada.day,
+    );
+    return hoy.isAtSameMomentAs(fechaHorario) || hoy.isAfter(fechaHorario);
+  }
+
+Future<void> _manejarAsistencia(Horario horario, int estado) async {
+  if (!_esClaseDeHoy(horario)) {
+    _mostrarErrorSnackbar('Solo puedes registrar asistencias para clases de hoy');
+    return;
+  }
+
+  setState(() => _isLoading = true);
+  
+  try {
+    final hoy = _formatearFechaAPI(_fechaSeleccionada);
+    final ahora = DateFormat('HH:mm:ss').format(DateTime.now());
+
+    dynamic response;
+    
+    if (horario.asistenciaRegistrada && horario.idAsistencia != null) {
+      // DEBUG LOG
+      debugPrint('Actualizando asistencia para horario ${horario.idHorario} con estado $estado');
+      
+      response = await _apiService.updateAsistencia(
+        token: widget.token,
+        idAsistencia: horario.idAsistencia!,
+        idEstado: estado,
+        horaAsistencia: ahora,
+      );
+    } else {
+      // DEBUG LOG
+      debugPrint('Creando nueva asistencia para horario ${horario.idHorario}');
+      
+      response = await _apiService.createAsistencia(
+        token: widget.token,
+        idHorario: horario.idHorario,
+        idEstado: estado,
+        fechaAsistencia: hoy,
+        horaAsistencia: ahora,
+      );
+    }
+
+    // DEBUG LOG de la respuesta
+    debugPrint('Respuesta del servidor: $response');
+
+    // Forzar recarga de datos
+    await _cargarHorariosDelDia();
+    
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('Asistencia ${horario.asistenciaRegistrada ? 'actualizada' : 'registrada'} como ${_estadosAsistencia[estado]}'),
+        backgroundColor: _coloresEstado[estado],
+        behavior: SnackBarBehavior.floating,
+        duration: const Duration(seconds: 2),
+      ),
+    );
+  } on ApiException catch (e) {
+    _mostrarErrorSnackbar('Esta seguro de que desea marcar esa asistencia?');
+  } catch (e, stackTrace) {
+    debugPrint('Error completo: $e');
+    debugPrint('Stack trace: $stackTrace');
+    _mostrarErrorSnackbar('Error inesperado: ${e.toString()}');
+  } finally {
+    setState(() => _isLoading = false);
+  }
+}
   void _mostrarErrorSnackbar(String mensaje) {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(mensaje),
+        backgroundColor: const Color.fromARGB(255, 8, 107, 153),
         action: SnackBarAction(
-          label: 'Reintentar',
+          label: 'Aceptar',
+          textColor: Colors.white,
           onPressed: _cargarHorariosDelDia,
         ),
       ),
@@ -221,58 +315,6 @@ Future<List<Horario>> _procesarHorarios(List<dynamic> horariosHoy, String hoy) a
     }
   }
 
-Future<void> _registrarAsistencia(Horario horario, bool asistio) async {
-  if (!asistio) {
-    final confirmado = await showDialog<bool>(
-      context: context,
-      builder: (context) => AlertDialog(
-        title: const Text('Confirmar ausencia'),
-        content: const Text('¿Está seguro de marcar esta clase como ausente?'),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context, false),
-            child: const Text('Cancelar'),
-          ),
-          TextButton(
-            onPressed: () => Navigator.pop(context, true),
-            child: const Text('Confirmar', style: TextStyle(color: Colors.red)),
-          ),
-        ],
-      ),
-    );
-    if (confirmado != true) return;
-  }
-
-  setState(() => _isLoading = true);
-  try {
-    final asistencia = await _apiService.createAsistencia(
-      token: widget.token,
-      idHorario: horario.idHorario,
-      idEstado: asistio ? 1 : 2,
-      fechaAsistencia: '${_fechaSeleccionada.year}-${_fechaSeleccionada.month.toString().padLeft(2, '0')}-${_fechaSeleccionada.day.toString().padLeft(2, '0')}',
-      horaAsistencia: '${DateTime.now().hour.toString().padLeft(2, '0')}:${DateTime.now().minute.toString().padLeft(2, '0')}:${DateTime.now().second.toString().padLeft(2, '0')}',
-    );
-
-    await _cargarHorariosDelDia();
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text('Asistencia marcada como ${asistio ? 'PRESENTE' : 'AUSENTE'}'),
-        behavior: SnackBarBehavior.floating,
-      ),
-    );
-  } on ApiException catch (e) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text('Error: ${e.message}'),
-        duration: const Duration(seconds: 5),
-      ),
-    );
-  } finally {
-    setState(() => _isLoading = false);
-  }
-}
-
-
   void _confirmarCierreSesion() {
     showDialog(
       context: context,
@@ -286,7 +328,7 @@ Future<void> _registrarAsistencia(Horario horario, bool asistio) async {
           ),
           TextButton(
             onPressed: () {
-              Navigator.pop(context); // Cierra el diálogo
+              Navigator.pop(context);
               _cerrarSesion();
             },
             child: const Text('Cerrar sesión', style: TextStyle(color: Colors.red)),
@@ -296,11 +338,8 @@ Future<void> _registrarAsistencia(Horario horario, bool asistio) async {
     );
   }
 
-    void _cerrarSesion() {
-    // Navega de vuelta a la pantalla de login
+  void _cerrarSesion() {
     Navigator.of(context).pushReplacementNamed('/login');
-    
-    // Opcional: Mostrar mensaje de sesión cerrada
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(
         content: Text('Sesión cerrada correctamente'),
@@ -308,9 +347,6 @@ Future<void> _registrarAsistencia(Horario horario, bool asistio) async {
       ),
     );
   }
-
-
-
 
   @override
   Widget build(BuildContext context) {
@@ -362,7 +398,11 @@ Future<void> _registrarAsistencia(Horario horario, bool asistio) async {
 
   Widget _buildBodyContent() {
     if (_isLoading) {
-      return const Center(child: CircularProgressIndicator());
+      return const Center(
+        child: CircularProgressIndicator(
+          valueColor: AlwaysStoppedAnimation<Color>(Color(0xFF64A6E3)),
+        ),
+      );
     }
     
     if (_hasError) {
@@ -379,6 +419,10 @@ Future<void> _registrarAsistencia(Horario horario, bool asistio) async {
             const SizedBox(height: 16),
             ElevatedButton(
               onPressed: _cargarHorariosDelDia,
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.white,
+                foregroundColor: const Color(0xFF64A6E3),
+              ),
               child: const Text('Reintentar'),
             ),
           ],
@@ -474,19 +518,26 @@ Future<void> _registrarAsistencia(Horario horario, bool asistio) async {
   }
 
   Widget _buildAsistenciaSection(Horario horario) {
-    if (horario.asistenciaRegistrada) {
+    final puedeEditar = _esClaseDeHoy(horario);
+    
+    if (horario.asistenciaRegistrada && horario.idEstado != null) {
+      final estado = horario.idEstado!;
       return Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            'Estado: ${horario.estadoAsistencia}',
-            style: TextStyle(
-              fontSize: 16,
-              fontWeight: FontWeight.bold,
-              color: horario.estadoAsistencia == 'PRESENTE' 
-                  ? Colors.green 
-                  : Colors.red,
-            ),
+          Row(
+            children: [
+              Icon(_iconosEstado[estado], color: _coloresEstado[estado]),
+              const SizedBox(width: 8),
+              Text(
+                'Estado: ${_estadosAsistencia[estado]}',
+                style: TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.bold,
+                  color: _coloresEstado[estado],
+                ),
+              ),
+            ],
           ),
           if (horario.horaRegistro != null) ...[
             const SizedBox(height: 4),
@@ -498,34 +549,72 @@ Future<void> _registrarAsistencia(Horario horario, bool asistio) async {
               ),
             ),
           ],
+          if (puedeEditar) ...[
+            const SizedBox(height: 8),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: _estadosAsistencia.entries.map((entry) {
+                final estado = entry.key;
+                if (estado == horario.idEstado) return const SizedBox.shrink();
+                
+                return ActionChip(
+                  avatar: Icon(_iconosEstado[estado], size: 18),
+                  label: Text('Cambiar a ${entry.value}'),
+                  onPressed: () => _manejarAsistencia(horario, estado),
+                  backgroundColor: _coloresEstado[estado]!.withOpacity(0.1),
+                  labelStyle: TextStyle(
+                    color: _coloresEstado[estado],
+                    fontWeight: FontWeight.bold,
+                  ),
+                );
+              }).toList(),
+            ),
+          ],
         ],
       );
     } else {
-      return Row(
-        mainAxisAlignment: MainAxisAlignment.spaceAround,
+      return Column(
         children: [
-          ElevatedButton(
-            style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.green,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(8),
+          const Text(
+            'Registrar asistencia:',
+            style: TextStyle(fontWeight: FontWeight.bold),
+          ),
+          const SizedBox(height: 8),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: _estadosAsistencia.entries.map((entry) {
+              final estado = entry.key;
+              return ElevatedButton.icon(
+                icon: Icon(_iconosEstado[estado], size: 18),
+                label: Text(entry.value),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: puedeEditar 
+                      ? _coloresEstado[estado]
+                      : Colors.grey,
+                  foregroundColor: Colors.white,
+                ),
+                onPressed: puedeEditar 
+                    ? () => _manejarAsistencia(horario, estado)
+                    : null,
+              );
+            }).toList(),
+          ),
+          if (!puedeEditar) ...[
+            const SizedBox(height: 8),
+            Text(
+              'Solo puedes registrar asistencias para clases de hoy',
+              style: TextStyle(
+                fontSize: 12,
+                color: Colors.grey[600],
+                fontStyle: FontStyle.italic,
               ),
             ),
-            onPressed: () => _registrarAsistencia(horario, true),
-            child: const Text('Asistió'),
-          ),
-          ElevatedButton(
-            style: ElevatedButton.styleFrom(
-              backgroundColor: Colors.red,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(8),
-              ),
-            ),
-            onPressed: () => _registrarAsistencia(horario, false),
-            child: const Text('Ausente'),
-          ),
+          ],
         ],
       );
     }
   }
+  
 }

@@ -9,6 +9,7 @@ class Horario {
   final String grupo;
   final String carrera;
   final bool asistenciaRegistrada;
+  final int? idEstado;
   final String? estadoAsistencia;
   final String? horaRegistro;
    final int? idAsistencia;
@@ -27,6 +28,7 @@ class Horario {
     this.estadoAsistencia,
     this.horaRegistro,
      this.idAsistencia, 
+     this.idEstado,
   });
 
   factory Horario.fromJson(Map<String, dynamic> json) {
@@ -57,6 +59,7 @@ class Horario {
       estadoAsistencia: json['estado_asistencia'] as String?,
       horaRegistro: json['hora_registro'] as String?, 
       idAsistencia: json['id_asistencia'] as int?,
+      idEstado: json['id_estado'],
     );
   }
 }
